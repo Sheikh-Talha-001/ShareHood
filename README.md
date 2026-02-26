@@ -42,6 +42,46 @@ Make sure you have the following installed on your machine:
 * Git
 
 ### 1. Clone the Repository
-```bash
+bash
 git clone [https://github.com/Sheikh-Talha-001/ShareHood.git](https://github.com/Sheikh-Talha-001/ShareHood.git)
 cd ShareHood
+2. Backend Setup (Django)
+Open a terminal inside the main folder and run:
+
+Bash
+cd backend
+
+# Create and activate the virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt # (Note: we will create this file soon!)
+pip install django djangorestframework psycopg2-binary
+
+# Run database migrations
+python manage.py makemigrations
+python manage.py migrate
+
+# Start the Django development server (runs on [http://127.0.0.1:8000/](http://127.0.0.1:8000/))
+python manage.py runserver
+3. Frontend Setup (React)
+Open a second terminal inside the main folder and run:
+
+Bash
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Start the Vite development server (runs on http://localhost:5173/)
+npm run dev
+👥 Team Members
+Muhammad Talha Arshad - Full-Stack Developer
+
+Arslan - Full-Stack Developer
+
+Developed for the Web Engineering course at the University of Sargodha.
