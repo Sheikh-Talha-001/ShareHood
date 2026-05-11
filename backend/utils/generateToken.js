@@ -1,33 +1,53 @@
 // ============================================================
-// utils/generateToken.js — JWT Token Generator
+// utils/generateToken.js — JWT Token Generator + HttpOnly Cookie
 // ============================================================
-// JWT = JSON Web Token
+// WHY HttpOnly COOKIES?
+//   localStorage: JavaScript can read it → XSS attack can steal token
+//   HttpOnly cookie: Browser stores it but JS CANNOT read it → safe
 //
-// Think of a JWT like a signed wristband at a concert.
-// When you log in, the server hands you this wristband (token).
-// On every future request, you show the wristband — the server
-// verifies it's real (by checking the signature) and lets you in.
-//
-// A JWT has 3 parts separated by dots:
-//   HEADER.PAYLOAD.SIGNATURE
-//
-// The PAYLOAD contains your data (e.g. user ID).
-// The SIGNATURE proves the token was created by OUR server
-// (only we know the JWT_SECRET).
-//
-// JWTs are STATELESS — the server doesn't need to remember
-// anything. All the info is inside the token itself.
+// COOKIE OPTIONS:
+//   httpOnly: true     → JS can't access (prevents XSS theft)
+//   secure: true       → Only sent over HTTPS (production)
+//   sameSite: "strict" → Not sent on cross-site requests (prevents CSRF)
+//   maxAge: 7 days     → Auto-expires (matches JWT expiry)
 // ============================================================
 
 const jwt = require("jsonwebtoken");
 
-// generateToken takes a user ID and returns a signed JWT string
+// Generate JWT token string
 const generateToken = (userId) => {
   return jwt.sign(
-    { id: userId },              // PAYLOAD — data we embed in the token
-    process.env.JWT_SECRET,      // SECRET — used to sign (and later verify) the token
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" } // Token expires after 7 days
+    { id: userId },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
 };
 
-module.exports = generateToken;
+// Send token in HttpOnly cookie + JSON response
+const sendTokenResponse = (user, statusCode, res) => {
+  const token = generateToken(user._id);
+
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+  };
+
+  res.cookie("token", token, cookieOptions);
+
+  res.status(statusCode).json({
+    success: true,
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+    },
+  });
+};
+
+module.exports = { generateToken, sendTokenResponse };

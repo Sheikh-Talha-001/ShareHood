@@ -52,7 +52,7 @@ userSchema.pre("save", async function () {
 
   // Generate salt and hash
   const salt = await bcrypt.genSalt(10);
-  this.password = bcrypt.hash(this.password, salt);
+  this.password = await bcrypt.hash(this.password, salt);
   
   // NOTE: In async pre-hooks, you don't call next(). 
   // Returning from the function is enough for Mongoose.
