@@ -16,6 +16,7 @@ const connectDB = require("./config/db");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const authRoutes = require("./routes/authRoutes");
 const itemRoutes = require("./routes/itemRoutes");
+const borrowRequestRoutes = require("./routes/borrowRequestRoutes");
 
 // --- 4. Connect to MongoDB ---
 connectDB();
@@ -54,6 +55,9 @@ app.use("/api/auth", authRoutes);
 
 // Items: POST/GET /api/items | GET /api/items/my-items | GET/PUT/DELETE /api/items/:id
 app.use("/api/items", itemRoutes);
+
+// Requests: POST /api/requests | GET /my-requests, /received | PUT /:id/approve, /reject, /cancel, /return
+app.use("/api/requests", borrowRequestRoutes);
 
 // --- 8. Error Handling (MUST be after all routes) ---
 app.use(notFound);
