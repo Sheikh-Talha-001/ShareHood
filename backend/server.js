@@ -17,6 +17,7 @@ const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const authRoutes = require("./routes/authRoutes");
 const itemRoutes = require("./routes/itemRoutes");
 const borrowRequestRoutes = require("./routes/borrowRequestRoutes");
+const agreementRoutes = require("./routes/agreementRoutes");
 
 // --- 4. Connect to MongoDB ---
 connectDB();
@@ -58,6 +59,9 @@ app.use("/api/items", itemRoutes);
 
 // Requests: POST /api/requests | GET /my-requests, /received | PUT /:id/approve, /reject, /cancel, /return
 app.use("/api/requests", borrowRequestRoutes);
+
+// Agreements: GET /api/agreements | GET /:id | GET /:id/download
+app.use("/api/agreements", agreementRoutes);
 
 // --- 8. Error Handling (MUST be after all routes) ---
 app.use(notFound);

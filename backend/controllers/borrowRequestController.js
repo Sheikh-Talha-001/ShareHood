@@ -36,8 +36,34 @@
 
 const BorrowRequest = require("../models/borrowRequestModel");
 const Item = require("../models/itemModel");
+const Agreement = require("../models/agreementModel");
+const User = require("../models/userModel");
 const asyncHandler = require("../utils/asyncHandler");
 const ErrorResponse = require("../utils/errorResponse");
+const generateAgreementPDF = require("../utils/generateAgreementPDF");
+
+// ============================================================
+// HELPER: Generate a unique agreement number
+// ============================================================
+// Format: SH-AGR-{timestamp}-{random4chars}
+//   SH     → ShareHood prefix
+//   AGR    → Agreement type
+//   timestamp → milliseconds since epoch (unique per ms)
+//   random → 4 random hex chars (collision prevention)
+//
+// Example: "SH-AGR-1747062600000-A3F2"
+//
+// WHY NOT JUST USE MongoDB's _id?
+//   Agreement numbers should be human-readable. Users might
+//   reference them in conversations: "Check agreement SH-AGR-..."
+//   A MongoDB ObjectId like "6a034ecc11d4f25e7be80250" is not
+//   user-friendly.
+// ============================================================
+const generateAgreementNumber = () => {
+  const timestamp = Date.now();
+  const random = Math.random().toString(16).substring(2, 6).toUpperCase();
+  return `SH-AGR-${timestamp}-${random}`;
+};
 
 // ============================================================
 // POPULATE OPTIONS — Reusable configuration for .populate()
@@ -249,14 +275,82 @@ const approveRequest = asyncHandler(async (req, res, next) => {
   // The item is now "checked out" — no one else can borrow it
   await Item.findByIdAndUpdate(request.item, { availability: false });
 
-  // Return the fully populated request
+  // ============================================================
+  // AUTOMATIC AGREEMENT CREATION
+  // ============================================================
+  // When a request is approved, we automatically:
+  //   1. Fetch full details of borrower, owner, and item
+  //   2. Create an Agreement document in the database
+  //   3. Generate a professional PDF and save it to disk
+  //   4. Store the PDF file path in the agreement
+  //
+  // WHY AUTOMATIC?
+  //   Users shouldn't have to manually create agreements.
+  //   Automation ensures every approved request has a formal
+  //   record — no agreements get forgotten or skipped.
+  // ============================================================
+
+  // Fetch full details for the PDF (we need names, emails, etc.)
+  const borrower = await User.findById(request.borrower);
+  const owner = await User.findById(request.owner);
+  const item = await Item.findById(request.item);
+
+  // Generate a unique, human-readable agreement number
+  const agreementNumber = generateAgreementNumber();
+
+  // Create the agreement in the database
+  const agreement = await Agreement.create({
+    request: request._id,
+    item: request.item,
+    borrower: request.borrower,
+    owner: request.owner,
+    borrowDate: request.startDate,
+    expectedReturnDate: request.expectedReturnDate,
+    itemConditionBefore: item ? item.condition : "",
+    agreementStatus: "active",
+    agreementNumber,
+  });
+
+  // Generate the PDF file and get its path
+  // This creates a file like: uploads/agreements/SH-AGR-1747062600000-A3F2.pdf
+  try {
+    const pdfPath = await generateAgreementPDF({
+      agreementNumber,
+      borrowerName: borrower ? borrower.name : "Unknown",
+      borrowerEmail: borrower ? borrower.email : "Unknown",
+      ownerName: owner ? owner.name : "Unknown",
+      ownerEmail: owner ? owner.email : "Unknown",
+      itemTitle: item ? item.title : "Unknown Item",
+      itemCondition: item ? item.condition : "Not specified",
+      borrowDate: request.startDate,
+      expectedReturnDate: request.expectedReturnDate,
+      agreementStatus: "active",
+    });
+
+    // Save the PDF path in the agreement document
+    agreement.pdfPath = pdfPath;
+    await agreement.save();
+  } catch (pdfError) {
+    // PDF generation failed, but the agreement was still created.
+    // We log the error but don't fail the entire approve operation.
+    // The user can still use the system; the PDF can be regenerated later.
+    console.error("PDF generation failed:", pdfError.message);
+  }
+
+  // Return the fully populated request + agreement info
   const populatedRequest = await BorrowRequest.findById(request._id)
     .populate(POPULATE_OPTIONS);
 
   res.status(200).json({
     success: true,
-    message: "Request approved — item is now marked as unavailable",
+    message: "Request approved — agreement created and PDF generated",
     data: populatedRequest,
+    agreement: {
+      _id: agreement._id,
+      agreementNumber: agreement.agreementNumber,
+      agreementStatus: agreement.agreementStatus,
+      pdfPath: agreement.pdfPath,
+    },
   });
 });
 
@@ -424,6 +518,35 @@ const markReturned = asyncHandler(async (req, res, next) => {
   // The item is back with the owner, so others can now request it
   await Item.findByIdAndUpdate(request.item, { availability: true });
 
+  // ============================================================
+  // AUTOMATIC AGREEMENT COMPLETION
+  // ============================================================
+  // When the item is returned, we automatically update the
+  // corresponding agreement:
+  //   - agreementStatus → "completed"
+  //   - actualReturnDate → now
+  //   - itemConditionAfter → from req.body (optional)
+  //
+  // WHY UPDATE THE AGREEMENT?
+  //   The agreement should reflect the full lifecycle:
+  //     active → completed (with return date and condition)
+  //   This creates a complete audit trail for both parties.
+  // ============================================================
+  const agreement = await Agreement.findOne({ request: request._id });
+
+  if (agreement) {
+    agreement.agreementStatus = "completed";
+    agreement.actualReturnDate = new Date();
+
+    // The owner can optionally report the item's condition after return
+    // via req.body.itemConditionAfter (e.g., "good", "damaged", "same")
+    if (req.body.itemConditionAfter) {
+      agreement.itemConditionAfter = req.body.itemConditionAfter;
+    }
+
+    await agreement.save();
+  }
+
   const populatedRequest = await BorrowRequest.findById(request._id)
     .populate(POPULATE_OPTIONS);
 
@@ -431,6 +554,15 @@ const markReturned = asyncHandler(async (req, res, next) => {
     success: true,
     message: "Item marked as returned — item is now available again",
     data: populatedRequest,
+    agreement: agreement
+      ? {
+          _id: agreement._id,
+          agreementNumber: agreement.agreementNumber,
+          agreementStatus: agreement.agreementStatus,
+          actualReturnDate: agreement.actualReturnDate,
+          itemConditionAfter: agreement.itemConditionAfter,
+        }
+      : null,
   });
 });
 
